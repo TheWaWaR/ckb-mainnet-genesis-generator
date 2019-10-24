@@ -20,6 +20,14 @@ fn main() {
                 .help("Previous rounds testnet rewards config file")
         )
         .arg(
+            Arg::with_name("other-rewards")
+                .long("other-rewards")
+                .short("O")
+                .takes_value(true)
+                .required(true)
+                .help("Other rewards")
+        )
+        .arg(
             Arg::with_name("current-testnet")
                 .long("current-testnet")
                 .short("T")
@@ -36,4 +44,6 @@ fn main() {
                 .help("Target testnet block number")
         )
         .get_matches();
+
+    println!("matches: {:?}", matches);
 }
