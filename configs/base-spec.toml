@@ -1,0 +1,50 @@
+name = "ckb"
+
+[genesis]
+version = 0
+parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+timestamp = 1570255200338
+compact_target = 0x1c00e904
+uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+nonce = "0x0"
+
+[genesis.genesis_cell]
+message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
+
+[genesis.genesis_cell.lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# An array list paths to system cell files, which is absolute or relative to
+# the directory containing this config file.
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_sighash_all" }
+create_type_id = true
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/dao" }
+create_type_id = true
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_data" }
+create_type_id = false
+
+[genesis.system_cells_lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "data"
+
+# Dep group cells
+[genesis.dep_groups]
+secp256k1_blake160_sighash_all = [
+  { bundled = "specs/cells/secp256k1_data" },
+  { bundled = "specs/cells/secp256k1_blake160_sighash_all" },
+]
+
+# For first 11 block
+[genesis.bootstrap_lock]
+code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+args = "0x"
+hash_type = "type"
+
+[pow]
+func = "Eaglesong"
