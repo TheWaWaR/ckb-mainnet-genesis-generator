@@ -18,3 +18,4 @@ ckb-sdk = { git = "https://github.com/nervosnetwork/ckb-cli", branch = "develop"
 ckb-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
 ckb-chain-spec = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
 ckb-resource = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
+ckb-jsonrpc-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
