@@ -7,6 +7,7 @@ timestamp = 1570255200338
 compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
+issued_cells = []
 
 [genesis.genesis_cell]
 message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
