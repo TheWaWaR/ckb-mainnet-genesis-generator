@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
+use std::path::PathBuf;
 
 use ckb_chain_spec::ChainSpec;
 use ckb_jsonrpc_types::BlockNumber;
@@ -18,42 +19,29 @@ use ckb_types::{
 };
 use clap::{App, AppSettings, Arg};
 
+mod config;
+
+const SECP_TYPE_SCRIPT_HASH: H256 = h256!("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8");
+
 fn main() {
     env_logger::init();
     let matches = App::new("CKB main net chain spec generator")
         .global_setting(AppSettings::ColoredHelp)
         .arg(
-            Arg::with_name("base-spec")
-                .long("base-spec")
-                .short("B")
+            Arg::with_name("root")
+                .long("root")
+                .short("R")
                 .takes_value(true)
                 .required(true)
-                .help("Base chain spec config file"),
+                .help("Path in config relative path root")
         )
         .arg(
-            Arg::with_name("prev-testnet-rewards")
-                .long("prev-testnet-rewards")
-                .short("P")
+            Arg::with_name("config")
+                .long("config")
+                .short("C")
                 .takes_value(true)
                 .required(true)
-                .help("Previous rounds testnet rewards config file"),
-        )
-        .arg(
-            Arg::with_name("other-rewards")
-                .long("other-rewards")
-                .short("O")
-                .takes_value(true)
-                .required(true)
-                .help("Other rewards"),
-        )
-        .arg(
-            Arg::with_name("current-testnet")
-                .long("current-testnet")
-                .short("T")
-                .takes_value(true)
-                .required(true)
-                .default_value("http://127.0.0.1:8114")
-                .help("Current testnet RPC url"),
+                .help("Config file"),
         )
         .arg(
             Arg::with_name("target-block-number")
@@ -71,37 +59,37 @@ fn main() {
         )
         .get_matches();
 
-    let base_spec = matches.value_of("base-spec").unwrap();
-    let prev_testnet_rewards = matches.value_of("prev-testnet-rewards").unwrap();
-    let other_rewards = matches.value_of("other-rewards").unwrap();
-    let current_testnet = matches.value_of("current-testnet").unwrap();
+    let root_path = matches.value_of("root").unwrap();
+    let config_path = matches.value_of("config").unwrap();
     let target_block_number: u64 = matches
         .value_of("target-block-number")
         .unwrap()
         .parse()
         .unwrap();
-    println!("base-spec: {}", base_spec);
-    println!("prev-testnet-rewards: {}", prev_testnet_rewards);
-    println!("other-rewards: {}", other_rewards);
-    println!("current-testnet: {}", current_testnet);
-    println!("target-block-number: {}", target_block_number);
 
+    let config = config::Config::from_path(config_path);
+    println!("Config: {:?}", config);
     println!("==============================");
 
-    let base_spec = read_base_chain_spec(base_spec);
-    let current_testnet_result = read_current_testnet(current_testnet, target_block_number);
+    let base_spec_path: PathBuf = [root_path, config.base_spec.as_str()].iter().collect();
+    let base_spec = read_base_chain_spec(base_spec_path);
+    let current_testnet_result = read_current_testnet(
+        config.testnet_rewards.round5.url.as_str(),
+        target_block_number,
+    );
     println!("CurrentTestnetResult: {}", current_testnet_result);
-    let prev_rewards = read_prev_rewards(prev_testnet_rewards);
+    let round1_path: PathBuf = [root_path, config.testnet_rewards.round1.as_str()].iter().collect();
+    let round1_rewards = read_round1_rewards(round1_path);
     // println!("base_spec: {:?}", base_spec);
     // println!("prev_rewards: {:?}", prev_rewards);
 }
 
-fn read_base_chain_spec(path: &str) -> ChainSpec {
-    let res = Resource::file_system(path.into());
+fn read_base_chain_spec(path: PathBuf) -> ChainSpec {
+    let res = Resource::file_system(path);
     ChainSpec::load_from(&res).expect("load spec by name")
 }
 
-fn read_prev_rewards(path: &str) -> Vec<(H160, u64)> {
+fn read_round1_rewards(path: PathBuf) -> Vec<(H160, u64)> {
     let file = fs::File::open(path).unwrap();
     let mut rdr = csv::Reader::from_reader(file);
     let mut results = Vec::new();
@@ -150,8 +138,6 @@ fn read_current_testnet(url: &str, block_number: u64) -> CurrentTestnetResult {
     let mut rewards = HashMap::default();
     let mut last_block_hash = H256::default();
     let mut total_base_reward: u64 = 0;
-    let secp_type_script_hash =
-        h256!("0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8");
 
     fn get_tip_block_number(client: &mut HttpRpcClient) -> u64 {
         client.get_tip_block_number().call().unwrap().value()
@@ -197,7 +183,7 @@ fn read_current_testnet(url: &str, block_number: u64) -> CurrentTestnetResult {
             .map(|data| packed::CellbaseWitness::from_slice(&data.raw_data()).unwrap())
             .unwrap()
             .lock();
-        if lock_script.code_hash() == secp_type_script_hash.pack()
+        if lock_script.code_hash() == SECP_TYPE_SCRIPT_HASH.pack()
             && lock_script.hash_type().unpack() == ScriptHashType::Type
             && lock_script.args().raw_data().len() == 20
         {
