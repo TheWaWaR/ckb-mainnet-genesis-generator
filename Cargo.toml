@@ -14,8 +14,11 @@ env_logger = "0.6"
 serde = { version = "1.0", features = ["rc"] }
 serde_derive = "1.0"
 serde_json = "1.0"
+toml = "0.5"
+chrono = "0.4"
 ckb-sdk = { git = "https://github.com/nervosnetwork/ckb-cli", branch = "develop" }
-ckb-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
-ckb-chain-spec = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
-ckb-resource = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
-ckb-jsonrpc-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.23" }
+ckb-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
+ckb-chain-spec = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
+ckb-resource = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
+ckb-jsonrpc-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
+ckb-hash = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
