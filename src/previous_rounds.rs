@@ -1,7 +1,7 @@
+use crate::consts::ONE_CKB;
+use ckb_hash::new_blake2b;
 use ckb_sdk::{Address, NetworkType, OldAddress};
 use ckb_types::{H160, H256};
-use ckb_hash::new_blake2b;
-use crate::consts::ONE_CKB;
 use std::collections::HashMap;
 
 pub struct AddressParser;
@@ -70,7 +70,11 @@ pub fn read_epoch_lucky_rewords(
         let record = record.unwrap();
         let address_str = record.get(0).unwrap();
         if address_str.is_empty() {
-            log::warn!("empty address info: {}, {}", record.get(1).unwrap(), record.get(2).unwrap());
+            log::warn!(
+                "empty address info: {}, {}",
+                record.get(1).unwrap(),
+                record.get(2).unwrap()
+            );
             continue;
         }
         match AddressParser.parse(address_str) {
@@ -114,6 +118,10 @@ pub fn read_round5_stage1_rewards() -> Vec<(H160, u64)> {
     read_normal_rewards(crate::data::DATA_ROUND5_STAGE1)
 }
 
+pub fn read_round5_stage2_rewards() -> Vec<(H160, u64)> {
+    read_normal_rewards(crate::data::DATA_ROUND5_STAGE2)
+}
+
 pub fn read_normal_rewards(data: &str) -> Vec<(H160, u64)> {
     let mut results = Vec::new();
     let mut rdr = csv::Reader::from_reader(data.as_bytes());
@@ -121,7 +129,11 @@ pub fn read_normal_rewards(data: &str) -> Vec<(H160, u64)> {
         let record = record.unwrap();
         let address_str = record.get(0).unwrap();
         if address_str.is_empty() {
-            log::warn!("empty address info: {}, {}", record.get(1).unwrap(), record.get(2).unwrap());
+            log::warn!(
+                "empty address info: {}, {}",
+                record.get(1).unwrap(),
+                record.get(2).unwrap()
+            );
             continue;
         }
         match AddressParser.parse(address_str) {
@@ -141,23 +153,27 @@ pub fn read_normal_rewards(data: &str) -> Vec<(H160, u64)> {
 pub fn all_rewards() -> Vec<(H160, u64)> {
     let mut result: HashMap<H160, u64> = HashMap::default();
 
-    for (idx, round_rewards) in vec![
-        read_round1_rewards(),
-        read_round2_rewards(),
-        read_round3_rewards(),
-        read_round4_rewards(),
-        read_round5_stage1_rewards(),
-    ].into_iter().enumerate()
+    for (round_name, round_rewards) in vec![
+        ("1", read_round1_rewards()),
+        ("2", read_round2_rewards()),
+        ("3", read_round3_rewards()),
+        ("4", read_round4_rewards()),
+        ("5-stage1", read_round5_stage1_rewards()),
+        ("5-stage2", read_round5_stage2_rewards()),
+    ]
+    .into_iter()
     {
-        let n = idx + 1;
         let mut total_capacity = 0;
         let count = round_rewards.len();
         for (lock_hash, capacity) in round_rewards {
-            log::info!("round{}: {:#} => {}", n, lock_hash, capacity);
+            log::info!("round{}: {:#} => {}", round_name, lock_hash, capacity);
             total_capacity += capacity;
             *result.entry(lock_hash).or_default() += capacity;
         }
-        println!("==== Round {}, count: {}, total_capacity: {}\n", n, count, total_capacity);
+        println!(
+            "==== Round {}, count: {}, total_capacity: {}\n",
+            round_name, count, total_capacity
+        );
     }
 
     let mut rewards: Vec<(H160, u64)> = result.into_iter().collect();

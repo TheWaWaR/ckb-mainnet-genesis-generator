@@ -1,10 +1,8 @@
+use chrono::prelude::*;
 use std::collections::HashMap;
 use std::fmt;
-use std::fs;
-use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use chrono::prelude::*;
 
 use ckb_jsonrpc_types::BlockNumber;
 use ckb_sdk::HttpRpcClient;
@@ -42,6 +40,18 @@ impl CurrentTestnetResult {
         }
     }
 
+    pub fn real_rewards(&self) -> Vec<(H160, u64)> {
+        self.rewards
+            .iter()
+            .map(|(lock_arg, reward)| {
+                let real_reward = (u128::from(*reward)
+                    * u128::from(crate::consts::FINAL_ROUND_REWARD)
+                    / u128::from(self.total_base_reward)) as u64;
+                (lock_arg.clone(), real_reward)
+            })
+            .collect()
+    }
+
     pub fn map(&self) -> HashMap<H160, u64> {
         self.rewards.iter().cloned().collect()
     }
@@ -53,34 +63,29 @@ impl fmt::Display for CurrentTestnetResult {
         writeln!(f, "  total_base_reward: {}", self.total_base_reward)?;
         writeln!(f, "  last_block_hash: {:#}", self.last_block_hash)?;
         writeln!(f, "  last_block_number: {}", self.last_block_number)?;
+        writeln!(f, "  rewards.len(): {}", self.rewards.len())?;
+        let mut total_real_reward = 0;
         for (lock_arg, reward) in &self.rewards {
-            writeln!(f, "  > lock_arg: {:#}, reward: {}", lock_arg, reward)?;
+            let real_reward = (u128::from(*reward) * u128::from(crate::consts::FINAL_ROUND_REWARD)
+                / u128::from(self.total_base_reward)) as u64;
+            total_real_reward += real_reward;
+            writeln!(
+                f,
+                "  > lock_arg: {:#}, reward: {}, real-reward: {}",
+                lock_arg, reward, real_reward
+            )?;
         }
+        writeln!(f, "  total_real_reward: {}", total_real_reward)?;
         writeln!(f, "}}")
     }
 }
 
-pub fn read_last_round(
-    url: &str,
-    confirmations: u16,
-    cache_path: Option<&str>,
-) -> CurrentTestnetResult {
+pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
     let mut client = HttpRpcClient::from_uri(url);
-    let (mut rewards, mut last_block_hash, mut last_block_number, mut total_base_reward) =
-        match cache_path.as_ref() {
-            Some(path) if Path::new(path).exists() => {
-                let file = fs::File::open(path).unwrap();
-                let result: CurrentTestnetResult = serde_json::from_reader(file).unwrap();
-                (
-                    result.map(),
-                    result.last_block_hash.clone(),
-                    result.last_block_number,
-                    result.total_base_reward,
-                )
-            }
-            _ => (HashMap::default(), H256::default(), 0, 0),
-        };
-
+    let mut rewards = HashMap::default();
+    let mut last_block_hash = H256::default();
+    let mut last_block_number = 0;
+    let mut total_base_reward = 0;
     let mut tip_number = get_tip_block_number(&mut client);
     let current_epoch_number = client.get_current_epoch().call().unwrap().number.value();
     println!(
@@ -90,17 +95,10 @@ pub fn read_last_round(
         current_epoch_number,
         crate::consts::LAST_EPOCH,
     );
-    println!(
-        "[{}] last_block_number: {}, last_block_hash: {:#}, total_base_reward: {}",
-        Local::now(),
-        last_block_number,
-        last_block_hash,
-        total_base_reward,
-    );
 
     let mut last_epoch_number = 0;
     for number in (last_block_number + 1)..std::u64::MAX {
-        tip_number = wait_until(&mut client, number, Some(tip_number), 100);
+        tip_number = wait_until(&mut client, number + 11, Some(tip_number), 100);
 
         let block = client
             .get_block_by_number(BlockNumber::from(number))
@@ -117,10 +115,15 @@ pub fn read_last_round(
         }
         let epoch_number = epoch.number();
         if epoch_number != last_epoch_number {
-            println!("[{}] New epoch: {}, block number: {}", Local::now(), epoch_number, number);
+            println!(
+                "[{}] New epoch: {}, block number: {}",
+                Local::now(),
+                epoch_number,
+                number
+            );
             last_epoch_number = epoch_number;
         }
-        if epoch_number > crate::consts::LAST_EPOCH {
+        if epoch_number >= crate::consts::LAST_EPOCH {
             break;
         }
         last_block_hash = block_hash.clone();
@@ -134,13 +137,19 @@ pub fn read_last_round(
             .map(|data| packed::CellbaseWitness::from_slice(&data.raw_data()).unwrap())
             .unwrap()
             .lock();
+
         if lock_script.code_hash() == SECP_TYPE_SCRIPT_HASH.pack()
             && lock_script.hash_type() == ScriptHashType::Type.into()
             && lock_script.args().raw_data().len() == 20
         {
-            let lock_arg = H160::from_slice(&lock_script.args().raw_data()).unwrap();
+            let cursor_hash = client
+                .get_block_hash(BlockNumber::from(number + 11))
+                .call()
+                .unwrap()
+                .0
+                .unwrap();
             let base_reward: u64 = client
-                .get_cellbase_output_capacity_details(block_hash.clone())
+                .get_cellbase_output_capacity_details(cursor_hash)
                 .call()
                 .unwrap()
                 .0
@@ -148,37 +157,30 @@ pub fn read_last_round(
                 .primary
                 .value();
             total_base_reward += base_reward;
+            let lock_arg = H160::from_slice(&lock_script.args().raw_data()).unwrap();
+            log::debug!(
+                "lock_arg: {:#}, block-number: {:05}, base-reward: {}",
+                lock_arg,
+                number,
+                base_reward
+            );
             *rewards.entry(lock_arg).or_default() += base_reward;
         } else {
-            log::warn!(
+            log::error!(
                 "Invalid lock script: {}, block number: {}",
                 lock_script,
                 number
             );
         }
-
-        if number % 2000 == 0 && tip_number - number > 300 {
-            if let Some(path) = cache_path.as_ref() {
-                let file = fs::File::create(path).unwrap();
-                let result = CurrentTestnetResult::new(
-                    rewards.clone(),
-                    total_base_reward,
-                    block_hash.clone(),
-                    number,
-                );
-                serde_json::to_writer(file, &result).unwrap();
-                log::info!(
-                    "Current block number: {}, save cache to: {:?}",
-                    number,
-                    path
-                );
-            }
-        }
     }
 
-    println!("Finished, last block number: {}", last_block_number);
+    println!(
+        "[{}] Finished, last block number: {}",
+        Local::now(),
+        last_block_number
+    );
     for n in 1..=u64::from(confirmations) {
-        println!("Waiting for {} confirmation", n);
+        println!("[{}] Waiting for {} confirmation", Local::now(), n);
         let number = last_block_number + n;
         tip_number = wait_until(&mut client, number, Some(tip_number), 100);
     }

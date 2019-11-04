@@ -9,6 +9,9 @@ pub const DATA_ROUND3_MINER: &str = include_str!("round3-miner.csv");
 pub const DATA_ROUND3_EPOCH: &str = include_str!("round3-epoch.csv");
 
 pub const DATA_ROUND4: &str = include_str!("round4.csv");
-pub const DATA_ROUND5_STAGE1: &str = include_str!("round5-stage1.csv");
 
-// pub const DATA_ROUND5_1: &str = include_str!("round5-1.csv");
+pub const DATA_ROUND5_STAGE1: &str = include_str!("round5-stage1.csv");
+pub const DATA_ROUND5_STAGE2: &str = include_str!("round5-stage2.csv");
+
+pub const DATA_SIGHASH_ALL: &str = include_str!("other-sighash-all.csv");
+pub const DATA_MULTISIG_ALL: &str = include_str!("other-multisig-all.csv");
