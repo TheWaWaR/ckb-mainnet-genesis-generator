@@ -1,23 +1,8 @@
 use crate::consts::ONE_CKB;
+use crate::AddressParser;
 use ckb_hash::new_blake2b;
-use ckb_sdk::{Address, NetworkType, OldAddress};
 use ckb_types::{H160, H256};
 use std::collections::HashMap;
-
-pub struct AddressParser;
-impl AddressParser {
-    fn parse(&self, input: &str) -> Result<H160, String> {
-        if let Ok((_network, address)) = Address::from_input(input) {
-            return Ok(address.hash().clone());
-        }
-
-        let prefix = input.chars().take(3).collect::<String>();
-        let network = NetworkType::from_prefix(prefix.as_str())
-            .ok_or_else(|| format!("Invalid address prefix: {}", prefix))?;
-        let old_address = OldAddress::from_input(network, input)?;
-        Ok(old_address.hash().clone())
-    }
-}
 
 pub fn read_round1_rewards() -> Vec<(H160, u64)> {
     let mut rdr = csv::Reader::from_reader(crate::data::DATA_ROUND1.as_bytes());

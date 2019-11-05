@@ -4,17 +4,18 @@ use std::fmt;
 use std::thread;
 use std::time::Duration;
 
-use ckb_jsonrpc_types::BlockNumber;
+use ckb_jsonrpc_types::{BlockNumber, EpochNumber};
 use ckb_sdk::HttpRpcClient;
 use ckb_types::{
     core::{EpochNumberWithFraction, ScriptHashType},
     packed,
     prelude::*,
-    H160, H256,
+    utilities::{compact_to_difficulty, difficulty_to_compact},
+    H160, H256, U256,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::consts::SECP_TYPE_SCRIPT_HASH;
+use crate::consts::{ONE_CKB, SECP_TYPE_SCRIPT_HASH};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CurrentTestnetResult {
@@ -22,6 +23,10 @@ pub struct CurrentTestnetResult {
     pub total_base_reward: u64,
     pub last_block_hash: H256,
     pub last_block_number: u64,
+    // Last block's timestamp
+    pub last_timestamp: u64,
+    // Last 4 epochs average difficulty (compact target)
+    pub avg_difficulty: u32,
 }
 
 impl CurrentTestnetResult {
@@ -30,6 +35,8 @@ impl CurrentTestnetResult {
         total_base_reward: u64,
         last_block_hash: H256,
         last_block_number: u64,
+        last_timestamp: u64,
+        avg_difficulty: u32,
     ) -> Self {
         let rewards: Vec<(H160, u64)> = rewards.into_iter().collect();
         CurrentTestnetResult {
@@ -37,6 +44,8 @@ impl CurrentTestnetResult {
             total_base_reward,
             last_block_hash,
             last_block_number,
+            last_timestamp,
+            avg_difficulty,
         }
     }
 
@@ -47,7 +56,7 @@ impl CurrentTestnetResult {
                 let real_reward = (u128::from(*reward)
                     * u128::from(crate::consts::FINAL_ROUND_REWARD)
                     / u128::from(self.total_base_reward)) as u64;
-                (lock_arg.clone(), real_reward)
+                (lock_arg.clone(), real_reward / ONE_CKB * ONE_CKB)
             })
             .collect()
     }
@@ -63,6 +72,8 @@ impl fmt::Display for CurrentTestnetResult {
         writeln!(f, "  total_base_reward: {}", self.total_base_reward)?;
         writeln!(f, "  last_block_hash: {:#}", self.last_block_hash)?;
         writeln!(f, "  last_block_number: {}", self.last_block_number)?;
+        writeln!(f, "  last_timestamp: {}", self.last_timestamp)?;
+        writeln!(f, "  avg_difficulty: {:#x}", self.avg_difficulty)?;
         writeln!(f, "  rewards.len(): {}", self.rewards.len())?;
         let mut total_real_reward = 0;
         for (lock_arg, reward) in &self.rewards {
@@ -85,15 +96,16 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
     let mut rewards = HashMap::default();
     let mut last_block_hash = H256::default();
     let mut last_block_number = 0;
+    let mut last_timestamp = 0;
     let mut total_base_reward = 0;
     let mut tip_number = get_tip_block_number(&mut client);
     let current_epoch_number = client.get_current_epoch().call().unwrap().number.value();
     println!(
-        "[{}] tip: {}, epoch-number: {}, target-epoch-number: {}",
+        "[{}] tip: {}, epoch-number: {}, epoch-count: {}",
         Local::now(),
         tip_number,
         current_epoch_number,
-        crate::consts::LAST_EPOCH,
+        crate::consts::EPOCH_COUNT,
     );
 
     let mut last_epoch_number = 0;
@@ -123,11 +135,12 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
             );
             last_epoch_number = epoch_number;
         }
-        if epoch_number >= crate::consts::LAST_EPOCH {
+        if epoch_number >= crate::consts::EPOCH_COUNT {
             break;
         }
         last_block_hash = block_hash.clone();
         last_block_number = number;
+        last_timestamp = block.header.inner.timestamp.value();
 
         let cellbase: packed::Transaction = block.transactions[0].clone().inner.into();
         let lock_script = cellbase
@@ -184,11 +197,37 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
         let number = last_block_number + n;
         tip_number = wait_until(&mut client, number, Some(tip_number), 100);
     }
+
+    let avg_difficulty = {
+        let mut total_difficulty = U256::zero();
+        for offset in 0..4 {
+            let epoch_number = crate::consts::EPOCH_COUNT - 1 - offset;
+            let compact_target = client
+                .get_epoch_by_number(EpochNumber::from(epoch_number))
+                .call()
+                .unwrap()
+                .0
+                .unwrap()
+                .compact_target
+                .value();
+            println!(
+                "[{}] Epoch {}, compact_target: {:#x}",
+                Local::now(),
+                epoch_number,
+                compact_target,
+            );
+            total_difficulty += compact_to_difficulty(compact_target);
+        }
+        difficulty_to_compact(total_difficulty / U256::from(4u32))
+    };
+
     CurrentTestnetResult::new(
         rewards,
         total_base_reward,
         last_block_hash,
         last_block_number,
+        last_timestamp,
+        avg_difficulty,
     )
 }
 
