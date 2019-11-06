@@ -3,14 +3,18 @@ name = "ckb"
 [genesis]
 version = 0
 parent_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-timestamp = 1570255200338
+# TODO: set to the timestamp of the last block in testnet v0.24.0
+timestamp = 1572674400069
+# TODO: computed from the last epochs in testnet v0.24.0
 compact_target = 0x1c00e904
 uncles_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 nonce = "0x0"
-issued_cells = []
+# TODO: Genesis block hash
+hash = "0x"
 
 [genesis.genesis_cell]
-message = "rylai-v11 9d812af5 chore: update system script <zhangsoledad 2019-09-27 21:22:02 +0800>"
+# TODO: Replace 0x with the last block hash in testnet v0.24.0
+message = "lina 0x"
 
 [genesis.genesis_cell.lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -28,6 +32,9 @@ create_type_id = true
 [[genesis.system_cells]]
 file = { bundled = "specs/cells/secp256k1_data" }
 create_type_id = false
+[[genesis.system_cells]]
+file = { bundled = "specs/cells/secp256k1_blake160_multisig_all" }
+create_type_id = true
 
 [genesis.system_cells_lock]
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -53,6 +60,22 @@ files = [
 code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
 args = "0x"
 hash_type = "type"
+
+# Burn
+[[genesis.issued_cells]]
+capacity = 8_400_000_000_00000000
+lock.code_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+lock.args = "0x62e907b15cbf27d5425399ebf6f0fb50ebb88f18"
+lock.hash_type = "data"
+
+# TODO: Other issued cells starts here
+# Public Token Sale: 20%
+# Ecosystem fund: 18.5%
+# Team: 15%
+# Private Sale: 14%
+# Strategic Founding Partners: 5%
+# Foundation Reserve: 2% - genesis message cell - system cells - dep groups
+# Testnet Incentives: 0.5%
 
 [pow]
 func = "Eaglesong"

@@ -61,7 +61,7 @@ fn main() {
     );
 
     // ==== Testnet rewards
-    let (testnet_rewards, timestamp, difficulty) = {
+    let (testnet_rewards, last_timestamp, mainnet_difficulty) = {
         let previous_rewards = previous_rounds::all_rewards();
         let current_testnet_result = last_round::read_last_round(testnet_rpc_server, confirmations);
         let last_rewards = current_testnet_result.real_rewards();
@@ -72,7 +72,7 @@ fn main() {
         (
             rewards,
             current_testnet_result.last_timestamp,
-            current_testnet_result.avg_difficulty,
+            current_testnet_result.mainnet_difficulty,
         )
     };
 
@@ -134,10 +134,13 @@ fn main() {
         spec.genesis.issued_cells.push(issued_cell);
     }
 
-    println!(
-        "==== final spec ====: \n{}\n",
-        toml::to_string_pretty(&spec).unwrap()
-    );
+    spec.genesis.timestamp = last_timestamp;
+    spec.genesis.compact_target = mainnet_difficulty;
+
+    // println!(
+    //     "==== final spec ====: \n{}\n",
+    //     toml::to_string_pretty(&spec).unwrap()
+    // );
 }
 
 pub struct AddressParser;

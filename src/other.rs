@@ -27,5 +27,6 @@ pub fn read_sighash_all_records() -> Vec<(H160, u64)> {
 }
 
 pub fn read_multisig_all_records() -> Vec<(H160, u128, u64)> {
+    // FIXME: xxx
     Default::default()
 }

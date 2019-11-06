@@ -25,8 +25,8 @@ pub struct CurrentTestnetResult {
     pub last_block_number: u64,
     // Last block's timestamp
     pub last_timestamp: u64,
-    // Last 4 epochs average difficulty (compact target)
-    pub avg_difficulty: u32,
+    // compact target
+    pub mainnet_difficulty: u32,
 }
 
 impl CurrentTestnetResult {
@@ -36,7 +36,7 @@ impl CurrentTestnetResult {
         last_block_hash: H256,
         last_block_number: u64,
         last_timestamp: u64,
-        avg_difficulty: u32,
+        mainnet_difficulty: u32,
     ) -> Self {
         let rewards: Vec<(H160, u64)> = rewards.into_iter().collect();
         CurrentTestnetResult {
@@ -45,7 +45,7 @@ impl CurrentTestnetResult {
             last_block_hash,
             last_block_number,
             last_timestamp,
-            avg_difficulty,
+            mainnet_difficulty,
         }
     }
 
@@ -73,7 +73,7 @@ impl fmt::Display for CurrentTestnetResult {
         writeln!(f, "  last_block_hash: {:#}", self.last_block_hash)?;
         writeln!(f, "  last_block_number: {}", self.last_block_number)?;
         writeln!(f, "  last_timestamp: {}", self.last_timestamp)?;
-        writeln!(f, "  avg_difficulty: {:#x}", self.avg_difficulty)?;
+        writeln!(f, "  mainnet_difficulty: {:#x}", self.mainnet_difficulty)?;
         writeln!(f, "  rewards.len(): {}", self.rewards.len())?;
         let mut total_real_reward = 0;
         for (lock_arg, reward) in &self.rewards {
@@ -198,7 +198,13 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
         tip_number = wait_until(&mut client, number, Some(tip_number), 100);
     }
 
-    let avg_difficulty = {
+    rewards.retain(|lock_arg, capacity| {
+        if *capacity <= 1000 * ONE_CKB {
+            println!("WARN: reward not greater than 1000CKB {:#} => {}", lock_arg, capacity);
+        }
+        *capacity > 1000 * ONE_CKB
+    });
+    let mainnet_difficulty = {
         let mut total_difficulty = U256::zero();
         for offset in 0..4 {
             let epoch_number = crate::consts::EPOCH_COUNT - 1 - offset;
@@ -211,14 +217,20 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
                 .compact_target
                 .value();
             println!(
-                "[{}] Epoch {}, compact_target: {:#x}",
+                "[{}] Epoch {}, compact_target: {:#x} / {}",
                 Local::now(),
                 epoch_number,
                 compact_target,
+                compact_to_difficulty(compact_target),
             );
             total_difficulty += compact_to_difficulty(compact_target);
         }
-        difficulty_to_compact(total_difficulty / U256::from(4u32))
+        total_difficulty = total_difficulty / U256::from(4u32);
+        // total_difficulty * 1.5
+        total_difficulty = total_difficulty * U256::from(3u32) / U256::from(2u32);
+        total_difficulty = total_difficulty * U256::from(total_base_reward) / U256::from(crate::consts::FINAL_ROUND_REWARD);
+        println!("mainet difficulty: {}", total_difficulty);
+        difficulty_to_compact(total_difficulty)
     };
 
     CurrentTestnetResult::new(
@@ -227,7 +239,7 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
         last_block_hash,
         last_block_number,
         last_timestamp,
-        avg_difficulty,
+        mainnet_difficulty,
     )
 }
 
