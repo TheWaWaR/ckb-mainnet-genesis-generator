@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use ckb_jsonrpc_types::{BlockNumber, EpochNumber};
-use ckb_sdk::HttpRpcClient;
+use crate::client::HttpRpcClient;
 use ckb_types::{
     core::{EpochNumberWithFraction, ScriptHashType},
     packed,
@@ -13,11 +13,9 @@ use ckb_types::{
     utilities::{compact_to_difficulty, difficulty_to_compact},
     H160, H256, U256,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::consts::{ONE_CKB, SECP_TYPE_SCRIPT_HASH};
 
-#[derive(Debug, Deserialize, Serialize)]
 pub struct CurrentTestnetResult {
     pub rewards: Vec<(H160, u64)>,
     pub total_base_reward: u64,
@@ -27,6 +25,7 @@ pub struct CurrentTestnetResult {
     pub last_timestamp: u64,
     // compact target
     pub mainnet_difficulty: u32,
+    pub last_epoch_length: u64,
 }
 
 impl CurrentTestnetResult {
@@ -37,6 +36,7 @@ impl CurrentTestnetResult {
         last_block_number: u64,
         last_timestamp: u64,
         mainnet_difficulty: u32,
+        last_epoch_length: u64,
     ) -> Self {
         let rewards: Vec<(H160, u64)> = rewards.into_iter().collect();
         CurrentTestnetResult {
@@ -46,6 +46,7 @@ impl CurrentTestnetResult {
             last_block_number,
             last_timestamp,
             mainnet_difficulty,
+            last_epoch_length,
         }
     }
 
@@ -73,6 +74,7 @@ impl fmt::Display for CurrentTestnetResult {
         writeln!(f, "  last_block_hash: {:#}", self.last_block_hash)?;
         writeln!(f, "  last_block_number: {}", self.last_block_number)?;
         writeln!(f, "  last_timestamp: {}", self.last_timestamp)?;
+        writeln!(f, "  last_epoch_length: {}", self.last_epoch_length)?;
         writeln!(f, "  mainnet_difficulty: {:#x}", self.mainnet_difficulty)?;
         writeln!(f, "  rewards.len(): {}", self.rewards.len())?;
         let mut total_real_reward = 0;
@@ -91,21 +93,22 @@ impl fmt::Display for CurrentTestnetResult {
     }
 }
 
-pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
+pub fn read_last_round(url: &str, last_epoch: u64, confirmations: u16) -> CurrentTestnetResult {
     let mut client = HttpRpcClient::from_uri(url);
     let mut rewards = HashMap::default();
     let mut last_block_hash = H256::default();
     let mut last_block_number = 0;
     let mut last_timestamp = 0;
+    let mut last_epoch_length = 0;
     let mut total_base_reward = 0;
     let mut tip_number = get_tip_block_number(&mut client);
     let current_epoch_number = client.get_current_epoch().call().unwrap().number.value();
     println!(
-        "[{}] tip: {}, epoch-number: {}, epoch-count: {}",
+        "[{}] tip: {}, epoch-number: {}, last-epoch: {}",
         Local::now(),
         tip_number,
         current_epoch_number,
-        crate::consts::EPOCH_COUNT,
+        last_epoch,
     );
 
     let mut last_epoch_number = 0;
@@ -135,12 +138,13 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
             );
             last_epoch_number = epoch_number;
         }
-        if epoch_number >= crate::consts::EPOCH_COUNT {
+        if epoch_number > last_epoch {
             break;
         }
         last_block_hash = block_hash.clone();
         last_block_number = number;
         last_timestamp = block.header.inner.timestamp.value();
+        last_epoch_length = epoch.length();
 
         let cellbase: packed::Transaction = block.transactions[0].clone().inner.into();
         let lock_script = cellbase
@@ -207,7 +211,7 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
     let mainnet_difficulty = {
         let mut total_difficulty = U256::zero();
         for offset in 0..4 {
-            let epoch_number = crate::consts::EPOCH_COUNT - 1 - offset;
+            let epoch_number = last_epoch - offset;
             let compact_target = client
                 .get_epoch_by_number(EpochNumber::from(epoch_number))
                 .call()
@@ -240,6 +244,7 @@ pub fn read_last_round(url: &str, confirmations: u16) -> CurrentTestnetResult {
         last_block_number,
         last_timestamp,
         mainnet_difficulty,
+        last_epoch_length,
     )
 }
 

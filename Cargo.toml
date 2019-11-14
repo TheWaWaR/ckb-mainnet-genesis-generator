@@ -11,14 +11,18 @@ clap = "2.33.0"
 csv = "1.1.1"
 log = "0.4.6"
 env_logger = "0.6"
+bech32 = "0.6.0"
 serde = { version = "1.0", features = ["rc"] }
 serde_derive = "1.0"
 serde_json = "1.0"
+jsonrpc-client-core = "0.5.0"
+jsonrpc-client-http = "0.5.0"
+secp256k1 = "0.15.0"
 toml = "0.5"
 chrono = "0.4"
-ckb-sdk = { git = "https://github.com/nervosnetwork/ckb-cli", branch = "develop" }
-ckb-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
-ckb-chain-spec = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
-ckb-resource = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
-ckb-jsonrpc-types = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
-ckb-hash = { git = "https://github.com/nervosnetwork/ckb", branch = "rc/v0.24" }
+ckb-types = { git = "https://github.com/nervosnetwork/ckb", rev = "1f88147" }
+ckb-chain-spec = { git = "https://github.com/nervosnetwork/ckb", rev = "1f88147" }
+ckb-resource = { git = "https://github.com/nervosnetwork/ckb", rev = "1f88147" }
+ckb-jsonrpc-types = { git = "https://github.com/nervosnetwork/ckb", rev = "1f88147" }
+ckb-hash = { git = "https://github.com/nervosnetwork/ckb", rev = "1f88147" }
+ckb-crypto = { git = "https://github.com/nervosnetwork/ckb", rev = "1f88147", features = ["secp"] }

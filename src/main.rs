@@ -1,15 +1,21 @@
 use ckb_chain_spec::{ChainSpec, IssuedCell};
-use ckb_sdk::{Address, NetworkType, OldAddress};
-use ckb_types::{bytes::Bytes, core::Capacity, packed, prelude::*, H160, H256};
+use basic::{Address, NetworkType, OldAddress};
+use ckb_types::{bytes::Bytes, core::{Capacity, ScriptHashType}, packed, prelude::*, H160, H256, core::EpochNumberWithFraction};
 use clap::{App, AppSettings, Arg};
+use ckb_hash::blake2b_256;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use chrono::prelude::*;
+use std::fs;
+use std::io::{Read, Write};
 
 mod consts;
 mod data;
 mod last_round;
-mod other;
+mod genesis_final;
 mod previous_rounds;
+mod basic;
+mod client;
 
 // TODO Tasks:
 //   [ ] read other sighash_all_records
@@ -35,6 +41,14 @@ fn main() {
                 .help("Current testnet rpc server"),
         )
         .arg(
+            Arg::with_name("last-epoch")
+                .long("last-epoch")
+                .short("E")
+                .takes_value(true)
+                .default_value("89")
+                .help("Last epoch number")
+        )
+        .arg(
             Arg::with_name("confirmations")
                 .long("confirmations")
                 .short("C")
@@ -52,95 +66,87 @@ fn main() {
         .get_matches();
 
     let testnet_rpc_server = matches.value_of("testnet-rpc-server").unwrap();
+    let last_epoch = matches.value_of("last-epoch").unwrap().parse::<u64>().unwrap();
     let confirmations: u16 = matches.value_of("confirmations").unwrap().parse().unwrap();
 
-    let mut spec: ChainSpec = toml::from_slice(data::CHAIN_CHAIN_SPEC.as_bytes()).unwrap();
-    println!(
-        "==== base spec ====: \n{}\n",
-        toml::to_string_pretty(&spec).unwrap()
-    );
-
-    // ==== Testnet rewards
-    let (testnet_rewards, last_timestamp, mainnet_difficulty) = {
-        let previous_rewards = previous_rounds::all_rewards();
-        let current_testnet_result = last_round::read_last_round(testnet_rpc_server, confirmations);
-        let last_rewards = current_testnet_result.real_rewards();
-        println!("CurrentTestnetResult: {}", current_testnet_result);
-        let mut rewards = Vec::new();
-        rewards.extend(previous_rewards);
-        rewards.extend(last_rewards);
-        (
-            rewards,
-            current_testnet_result.last_timestamp,
-            current_testnet_result.mainnet_difficulty,
-        )
-    };
-
-    // === Other records
-    let sighash_all_records = other::read_sighash_all_records();
-    let multisig_all_records = other::read_multisig_all_records();
-
-    // ==== Summary sighash-all records
-    let mut sighash_all_map: HashMap<H160, u64> = HashMap::default();
-    for (lock_arg, capacity) in testnet_rewards
-        .into_iter()
-        .chain(sighash_all_records.into_iter())
     {
-        *sighash_all_map.entry(lock_arg).or_default() += capacity;
+        let mut boyu_file = fs::File::open("boyu-spec.toml").unwrap();
+        let mut boyu_content = String::new();
+        boyu_file.read_to_string(&mut boyu_content).unwrap();
+        let boyu_spec: ChainSpec = toml::from_str(boyu_content.as_str()).unwrap();
+        drop(boyu_file);
+        let mut boyu_file = fs::File::create("boyu-spec-new.toml").unwrap();
+        boyu_file.write_all(toml::to_string_pretty(&boyu_spec).unwrap().as_bytes()).unwrap();
     }
-    let mut sighash_all_vec: Vec<_> = sighash_all_map.into_iter().collect();
-    sighash_all_vec.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // ==== Summary multihash-all records
-    let mut multisig_all_map: HashMap<(H160, u128), u64> = HashMap::default();
-    for (lock_arg, since, capacity) in multisig_all_records {
-        *multisig_all_map.entry((lock_arg, since)).or_default() += capacity;
-    }
-    let mut multisig_all_vec: Vec<_> = multisig_all_map.into_iter().collect();
-    multisig_all_vec.sort_by(|a, b| match (a.0).0.cmp(&(b.0).0) {
-        Ordering::Equal => (a.0).1.cmp(&(b.0).1),
-        result => result,
-    });
+    let mut spec: ChainSpec = toml::from_str(data::CHAIN_CHAIN_SPEC).unwrap();
 
-    // ==== Put records into spec
-    for issued_cell in sighash_all_vec.into_iter().map(|(lock_arg, capacity)| {
-        let lock_script = packed::Script::new_builder()
-            .code_hash(consts::SECP_TYPE_SCRIPT_HASH.pack())
-            .args(Bytes::from(lock_arg.as_bytes()).pack())
-            .build();
-        IssuedCell {
+    // == Testnet rewards
+    let testnet_result = previous_rounds::all_rewards(testnet_rpc_server, last_epoch, confirmations);
+    // == Other records
+    let genesis_final_records = genesis_final::read_all_records(last_epoch);
+
+    for (lock_script, capacity) in genesis_final_records {
+        spec.genesis.issued_cells.push(IssuedCell {
             capacity: Capacity::shannons(capacity),
             lock: lock_script.into(),
-        }
-    }) {
-        spec.genesis.issued_cells.push(issued_cell);
+        });
     }
 
-    for issued_cell in multisig_all_vec
-        .into_iter()
-        .map(|((lock_arg, since), capacity)| {
-            let mut args_data = lock_arg.as_bytes().to_vec();
-            args_data.extend(since.to_le_bytes().iter());
-            let lock_script = packed::Script::new_builder()
-                .code_hash(consts::SECP_TYPE_SCRIPT_HASH.pack())
-                .args(Bytes::from(args_data).pack())
-                .build();
-            IssuedCell {
-                capacity: Capacity::shannons(capacity),
-                lock: lock_script.into(),
-            }
-        })
     {
-        spec.genesis.issued_cells.push(issued_cell);
+        let addr = Address::from_input(crate::consts::FOUNDATION_RESERVE_ADDR).unwrap().1;
+        let lock_arg: Bytes = build_multisig_lock_arg(
+            addr,
+            crate::consts::FOUNDATION_RESERVE_LOCK_TIME,
+            last_epoch,
+        ).into();
+        let lock_script = packed::Script::new_builder()
+            .code_hash(crate::consts::MULTISIG_TYPE_SCRIPT_HASH.pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(lock_arg.pack())
+            .build();
+        spec.genesis.issued_cells.push(IssuedCell {
+            capacity: Capacity::shannons(crate::consts::FOUNDATION_RESERVE),
+            lock: lock_script.into(),
+        });
+    }
+    // == Put testnet records into spec
+    for (lock_arg, capacity) in testnet_result.rewards.iter().cloned() {
+        let lock_script = packed::Script::new_builder()
+            .code_hash(consts::SECP_TYPE_SCRIPT_HASH.pack())
+            .hash_type(ScriptHashType::Type.into())
+            .args(lock_arg.pack())
+            .build();
+        spec.genesis.issued_cells.push(IssuedCell {
+            capacity: Capacity::shannons(capacity),
+            lock: lock_script.into(),
+        });
     }
 
-    spec.genesis.timestamp = last_timestamp;
-    spec.genesis.compact_target = mainnet_difficulty;
+    spec.genesis.timestamp = testnet_result.last_timestamp;
+    spec.genesis.genesis_cell.message = format!("lina {:#x}", testnet_result.last_block_hash);
+    spec.genesis.compact_target = testnet_result.mainnet_difficulty;
+    spec.params.genesis_epoch_length = testnet_result.last_epoch_length;
+    println!(">> timestamp: {}", spec.genesis.timestamp);
+    println!(">> message: {}", spec.genesis.genesis_cell.message);
+    println!(">> compact_target: {:#x}", spec.genesis.compact_target);
+    println!(">> genesis_epoch_length: {:#x}", spec.params.genesis_epoch_length);
+
+    let consensus = spec.build_consensus().unwrap();
 
     // println!(
-    //     "==== final spec ====: \n{}\n",
+    //     "==== spec ====: \n{}\n",
     //     toml::to_string_pretty(&spec).unwrap()
     // );
+    let mut file = fs::File::create("final-spec.toml").unwrap();
+    file.write_all(toml::to_string_pretty(&spec).unwrap().as_bytes()).unwrap();
+
+    let mut total_capacity = 0u64;
+    for output in consensus.genesis_block().transactions()[0].outputs().into_iter() {
+        let capacity: u64 = output.capacity().unpack();
+        total_capacity += capacity;
+    }
+    println!("genesis hash: {:?}, total-capacity: {}", consensus.genesis_hash(), total_capacity);
 }
 
 pub struct AddressParser;
@@ -156,4 +162,37 @@ impl AddressParser {
         let old_address = OldAddress::from_input(network, input)?;
         Ok(old_address.hash().clone())
     }
+}
+
+pub fn build_multisig_lock_arg(address: Address, datetime_str: &str, last_epoch: u64) -> Vec<u8> {
+    let datetime_string = if datetime_str.len() == 10 {
+        format!("{}{}", datetime_str, crate::consts::DEFAULT_TIME_SUFFIX)
+    } else {
+        datetime_str.to_string()
+    };
+    let since_begin = DateTime::parse_from_rfc3339(crate::consts::SINCE_BEGIN).unwrap();
+    let datetime = DateTime::parse_from_rfc3339(datetime_string.as_str()).unwrap();
+    let seconds = if datetime <= since_begin {
+        0
+    } else {
+        (datetime - since_begin).num_seconds() as u64
+    };
+
+    // number
+    let se = seconds / 14400 + 89 - last_epoch;
+    // index
+    let sn = (seconds % 14400) * 1800 / 14400;
+    // length
+    let sd = 1800;
+    let sf = 32;
+    let epoch = EpochNumberWithFraction::new(se, sn, sd);
+    let since = 0x2000_0000_0000_0000 | epoch.full_value();
+
+    let mut data = {
+        let mut buf = vec![0, 0, 1, 1];
+        buf.extend_from_slice(address.hash().as_bytes());
+        blake2b_256(&buf)[..20].to_vec()
+    };
+    data.extend(since.to_le_bytes().iter());
+    data
 }
